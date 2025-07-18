@@ -31,6 +31,19 @@ def main(is_semi_supervised, trial_num):
     # (3) Initialize the w values to place equal probability on each Gaussian
     # w should be a numpy array of shape (n, K)
     # *** START CODE HERE ***
+    k = K # to comply with notation in written tasks
+
+    # Initialize mu and sigma
+    indices = np.arange(n)
+    np.random.shuffle(indices)
+    groups_indexes = np.array_split(indices, k)
+    mu = [np.mean(x[groups_indexes[i], :], axis=0) for i in range(len(groups_indexes))]
+    sigma = [np.cov(x[groups_indexes[i], :].T) for i in range(len(groups_indexes))]
+
+    # Initialize phi to be uniform
+    phi = np.ones(k) / k
+    # Initialize w to be uniform
+    w = np.ones((n, k)) / k
     # *** END CODE HERE ***
 
     if is_semi_supervised:
@@ -80,7 +93,31 @@ def run_em(x, w, phi, mu, sigma, max_iter=1000):
         # We define convergence by the first iteration where abs(ll - prev_ll) < eps.
         # Hint: For debugging, recall part (a). We showed that ll should be monotonically increasing.
         # *** START CODE HERE
-        # *** END CODE HERE ***
+        if ll is not None:
+            prev_ll = ll
+        n, dim = x.shape
+        k = K # to comply with notation in written tasks
+        q = np.zeros((n, k))
+        ll = 0
+        # E: estimate w
+        for i in range(n):
+            for j in range(k):
+                nom = phi[j] * np.exp(-0.5 * np.dot(np.dot((x[i] - mu[j]).T, np.linalg.inv(sigma[j])), (x[i] - mu[j])))
+                den = np.sqrt(np.linalg.det(sigma[j])) * np.power(2 * np.pi, dim / 2)
+                q[i, j] = np.true_divide(nom, den).clip(min=1e-6)  # Avoid division by zero
+            ll += np.log(np.sum(q[i, :]))
+
+        w = q / np.sum(q, axis=1, keepdims=True)
+
+        # M: recalc phi, mu, and sigma
+        phi = np.sum(w, axis=0) / n
+        mu = np.dot(w.T, x) / np.sum(w, axis=0, keepdims=True).T
+        sigma = np.copy(sigma)
+        for j in range(k):
+            diff = x - mu[j]
+            sigma[j] = np.dot((w[:, j] * diff.T), diff) / np.sum(w[:, j])
+
+        it += 1
 
     return w
 
@@ -120,6 +157,45 @@ def run_semi_supervised_em(x, x_tilde, z_tilde, w, phi, mu, sigma, max_iter=1000
         # Hint: Make sure to include alpha in your calculation of ll.
         # Hint: For debugging, recall part (a). We showed that ll should be monotonically increasing.
         # *** START CODE HERE ***
+        if ll is not None:
+            prev_ll = ll
+        n, dim = x.shape
+        n_tilde = x_tilde.shape[0]
+        k = K
+        q = np.zeros((n, k))
+        ll = 0
+        # E-Step: estimate w, ll
+        for i in range(n):
+             for j in range(k):
+                 nom = phi[j] * np.exp(-0.5 * np.dot(np.dot((x[i] - mu[j]).T, np.linalg.inv(sigma[j])), (x[i] - mu[j])))
+                 den = np.sqrt(np.linalg.det(sigma[j])) * np.power(2 * np.pi, dim / 2)
+                 q[i, j] = np.true_divide(nom, den).clip(min=1e-6)  # Avoid division by zero
+             ll += np.log(np.sum(q[i, :]))
+
+        w = q / np.sum(q, axis=1, keepdims=True)
+
+        # E-Step: estimate likelihood for labeled examples
+        for i in range(n_tilde):
+            j = int(z_tilde[i].squeeze())
+            nom = phi[j] * np.exp(-0.5 * np.dot(np.dot((x_tilde[i] - mu[j]).T, np.linalg.inv(sigma[j])), (x_tilde[i] - mu[j])))
+            den = np.sqrt(np.linalg.det(sigma[j])) * np.power(2 * np.pi, dim / 2)
+            q_tilde = np.true_divide(nom, den).clip(min=1e-6)
+            ll += alpha * np.log(q_tilde)
+
+        # M-Step: update phi, mu and sigma for semi-supervised EM
+        for j in range(k):
+            sum_w = np.sum(w[:, j])
+            sum_tilde_w = alpha * np.sum(z_tilde.squeeze() == j)
+
+            phi[j] = np.true_divide(sum_w + sum_tilde_w, n + alpha * n_tilde)
+            mu[j] = np.true_divide(np.dot(w[:, j].T, x) + alpha * np.sum(x_tilde[z_tilde.squeeze() == j], axis=0), sum_w + sum_tilde_w)
+
+            diff = x - mu[j]
+            diff_tilde = x_tilde - mu[j]
+            sigma[j] = np.true_divide(np.dot((w[:, j] * diff.T), diff) + alpha * np.dot(diff_tilde.T, diff_tilde), sum_w + sum_tilde_w)
+
+        it += 1
+
         # *** END CODE HERE ***
 
     return w
