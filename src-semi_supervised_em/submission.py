@@ -170,8 +170,7 @@ def run_semi_supervised_em(x, x_tilde, z_tilde, w, phi, mu, sigma, max_iter=1000
                  nom = phi[j] * np.exp(-0.5 * np.dot(np.dot((x[i] - mu[j]).T, np.linalg.inv(sigma[j])), (x[i] - mu[j])))
                  den = np.sqrt(np.linalg.det(sigma[j])) * np.power(2 * np.pi, dim / 2)
                  q[i, j] = np.true_divide(nom, den).clip(min=1e-6)  # Avoid division by zero
-             ll += np.log(np.sum(q[i, :]))
-
+                 ll += np.log(q[i, j])
         w = q / np.sum(q, axis=1, keepdims=True)
 
         # E-Step: estimate likelihood for labeled examples
@@ -186,20 +185,21 @@ def run_semi_supervised_em(x, x_tilde, z_tilde, w, phi, mu, sigma, max_iter=1000
         for j in range(k):
             sum_w = np.sum(w[:, j])
             sum_tilde_w = alpha * np.sum(z_tilde.squeeze() == j)
+            phi[j] = (sum_w + sum_tilde_w) / (n + alpha * n_tilde)
 
-            phi[j] = np.true_divide(sum_w + sum_tilde_w, n + alpha * n_tilde)
-            mu[j] = np.true_divide(np.dot(w[:, j].T, x) + alpha * np.sum(x_tilde[z_tilde.squeeze() == j], axis=0), sum_w + sum_tilde_w)
+            # Update mu
+            x_tilde_j = x_tilde[z_tilde.squeeze() == j]
+            mu[j] = (np.dot(w[:, j].T, x) + alpha * np.sum(x_tilde[z_tilde.squeeze() == j], axis=0)) / (sum_w + sum_tilde_w)
 
+            # Update sigma
             diff = x - mu[j]
-            diff_tilde = x_tilde - mu[j]
-            sigma[j] = np.true_divide(np.dot((w[:, j] * diff.T), diff) + alpha * np.dot(diff_tilde.T, diff_tilde), sum_w + sum_tilde_w)
+            diff_tilde = x_tilde_j - mu[j]
+            sigma[j] = (np.dot((w[:, j] * diff.T), diff) + alpha * np.dot(diff_tilde.T, diff_tilde)) / (sum_w + sum_tilde_w)
 
         it += 1
-
         # *** END CODE HERE ***
 
     return w
-
 
 # *** START CODE HERE ***
 # *** END CODE HERE ***
